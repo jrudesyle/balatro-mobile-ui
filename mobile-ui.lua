@@ -151,19 +151,8 @@ if DynaText and DynaText.init then
 end
 
 ---------------------------------------------------------
--- 2. HOOK: UIBox_button - Bigger touch targets
----------------------------------------------------------
-
-if is_active('boost_buttons') and _orig_UIBox_button then
-    UIBox_button = function(args)
-        args = args or {}
-        if args.minw then args.minw = args.minw * cfg.button_minw_boost end
-        if args.minh then args.minh = args.minh * cfg.button_minh_boost end
-        if args.scale then args.scale = args.scale * cfg.button_scale_boost end
-        if args.padding then args.padding = args.padding * cfg.button_padding_boost end
-        return _orig_UIBox_button(args)
-    end
-end
+-- 2. HOOK: UIBox_button - NOT HOOKED (too broad — affects main menu buttons)
+-- Button boosting is handled through create_UIBox_buttons (in-game only)
 
 ---------------------------------------------------------
 -- 3. HOOK: create_UIBox_buttons
