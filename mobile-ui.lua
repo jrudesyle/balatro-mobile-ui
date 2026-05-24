@@ -3,7 +3,7 @@
 --- MOD_ID: mobile-ui
 --- MOD_AUTHOR: [rudesyle]
 --- MOD_DESCRIPTION: Improves readability, touch usability, and visual hierarchy for mobile/Android Balatro.
---- VERSION: 1.0.0
+--- VERSION: 1.1.0
 --- PRIORITY: -100
 
 -- ======================================================
@@ -16,9 +16,46 @@
 --  - Reduced border/outline clutter
 --  - Better color contrast and saturation
 --  - Improved HUD layout
+--  - Optimized blind select for mobile
 
 local MOD = SMODS.current_mod
 local cfg = MOD.config
+
+-- Helper: boost a node's direct text scales recursively
+local function boost_text_node(node, mult)
+    if not node then return end
+    if node.config and node.config.scale then
+        node.config.scale = node.config.scale * mult
+    end
+    if node.nodes then
+        for _, n in ipairs(node.nodes) do boost_text_node(n, mult) end
+    end
+    if node.config and node.config.object and node.config.object.config then
+        local oc = node.config.object.config
+        if oc.scale then oc.scale = oc.scale * mult end
+    end
+end
+
+-- Helper: boost padding/outline on nodes recursively
+local function boost_layout_node(node, p_boost, o_mult)
+    if not node then return end
+    if node.config then
+        if node.config.padding then node.config.padding = node.config.padding * p_boost end
+        if node.config.minh then node.config.minh = node.config.minh * 1.15 end
+        if node.config.minw then node.config.minw = node.config.minw * 1.1 end
+        if o_mult and node.config.outline then
+            node.config.outline = node.config.outline * o_mult
+        end
+    end
+    if node.nodes then
+        for _, n in ipairs(node.nodes) do boost_layout_node(n, p_boost, o_mult) end
+    end
+    if node.config and node.config.object and node.config.object.config then
+        local oc = node.config.object.config
+        if oc.scale then oc.scale = oc.scale * get_text_boost(oc.scale) end
+        if oc.maxw then oc.maxw = oc.maxw * 1.1 end
+    end
+end
 
 ---------------------------------------------------------
 -- UTILITY
@@ -39,6 +76,16 @@ local function desaturate(colour, amount)
     }
 end
 
+local function darken(colour, amount)
+    if not colour or not colour[1] then return colour end
+    return {
+        colour[1] * (1 - amount),
+        colour[2] * (1 - amount),
+        colour[3] * (1 - amount),
+        colour[4] or 1
+    }
+end
+
 local function copy_colour(c)
     if not c then return nil end
     return {c[1], c[2], c[3], c[4] or 1}
@@ -55,6 +102,18 @@ local function get_text_boost(original_scale)
         return 1 + (cfg.text_scale_mult - 1) * (1 - t)
     end
     return 1
+end
+
+-- Cross-fade between two colours
+local function mix_colours(c1, c2, t)
+    if not c1 or not c2 then return c1 or c2 or {1,1,1,1} end
+    t = t or 0.5
+    return {
+        c1[1] * (1 - t) + c2[1] * t,
+        c1[2] * (1 - t) + c2[2] * t,
+        c1[3] * (1 - t) + c2[3] * t,
+        (c1[4] or 1) * (1 - t) + (c2[4] or 1) * t
+    }
 end
 
 ---------------------------------------------------------
@@ -132,52 +191,30 @@ end
 if is_active('improve_blind_select') and _orig_create_UIBox_blind_choice then
     create_UIBox_blind_choice = function(type, run_info)
         local result = _orig_create_UIBox_blind_choice(type, run_info)
-        local function boost(node, depth)
-            if not node then return end
-            depth = depth or 0
-            if node.config then
-                if node.config.padding then node.config.padding = node.config.padding * cfg.blind_padding_boost end
-                if node.config.minh then node.config.minh = node.config.minh * 1.15 end
-                if node.config.minw then node.config.minw = node.config.minw * 1.1 end
-                if node.config.outline and is_active('reduce_outlines') then
-                    node.config.outline = node.config.outline * cfg.reduce_outline
-                end
-            end
-            if node.nodes then for _, n in ipairs(node.nodes) do boost(n, depth + 1) end end
-            if node.config and node.config.object and node.config.object.config then
-                local oc = node.config.object.config
-                if oc.scale then oc.scale = oc.scale * get_text_boost(oc.scale) end
-                if oc.maxw then oc.maxw = oc.maxw * 1.1 end
-            end
-        end
-        boost(result)
+        -- Boost all text in blind choices
+        boost_text_node(result, 1.15)
+        -- Boost layout (padding, spacing, min sizes)
+        boost_layout_node(result, cfg.blind_padding_boost, cfg.reduce_outline)
         return result
     end
 end
 
----------------------------------------------------------
--- 5. HOOK: create_UIBox_blind_select
----------------------------------------------------------
+-- 4b. Also boost the blind select container for more vertical spacing
 
 if is_active('improve_blind_select') and _orig_create_UIBox_blind_select then
     create_UIBox_blind_select = function()
         local result = _orig_create_UIBox_blind_select()
-        local function boost(node)
-            if not node then return end
-            if node.config then
-                if node.config.padding then node.config.padding = node.config.padding * cfg.blind_padding_boost end
-                if node.config.minh then node.config.minh = node.config.minh * 1.15 end
-            end
-            if node.nodes then for _, n in ipairs(node.nodes) do boost(n) end end
-            if node.config and node.config.object and node.config.object.config then
-                local oc = node.config.object.config
-                if oc.scale then oc.scale = oc.scale * get_text_boost(oc.scale) end
-            end
+        if result and result.config then
+            if result.config.padding then result.config.padding = result.config.padding * cfg.blind_padding_boost end
         end
-        boost(result)
+        -- Boost spacing between blind cards
+        boost_layout_node(result, cfg.blind_padding_boost, cfg.reduce_outline)
         return result
     end
 end
+
+---------------------------------------------------------
+-- 5. (merged into 4b above)
 
 ---------------------------------------------------------
 -- 6. HOOK: create_UIBox_HUD
@@ -186,25 +223,25 @@ end
 if is_active('improve_hud_layout') and _orig_create_UIBox_HUD then
     create_UIBox_HUD = function()
         local result = _orig_create_UIBox_HUD()
-        local function boost(node)
-            if not node then return end
-            if node.config then
-                if node.config.padding then node.config.padding = node.config.padding * cfg.hud_spacing_boost end
-                if node.config.minw then node.config.minw = node.config.minw * cfg.sidebar_minw_boost end
-                if node.config.minh then node.config.minh = node.config.minh * 1.1 end
-                if node.config.outline and is_active('reduce_outlines') then
-                    node.config.outline = node.config.outline * cfg.reduce_outline
-                end
-            end
-            if node.nodes then for _, n in ipairs(node.nodes) do boost(n) end end
-            if node.config and node.config.object and node.config.object.config then
-                local oc = node.config.object.config
-                if oc.scale then oc.scale = oc.scale * get_text_boost(oc.scale) end
-                if oc.maxw then oc.maxw = oc.maxw * 1.1 end
-            end
-        end
-        boost(result)
+        boost_text_node(result, 1.15)
+        boost_text_node(result, 1.15)
+        boost_layout_node(result, cfg.hud_spacing_boost, cfg.reduce_outline)
         return result
+    end
+end
+
+-- 6b. HOOK: create_UIBox_HUD_blind (sidebar blind info)
+---------------------------------------------------------
+
+if is_active('improve_hud_layout') then
+    local _orig_HUD_blind = create_UIBox_HUD_blind
+    if _orig_HUD_blind then
+        create_UIBox_HUD_blind = function()
+            local result = _orig_HUD_blind()
+            boost_text_node(result, 1.15)
+            boost_layout_node(result, cfg.hud_spacing_boost, cfg.reduce_outline)
+            return result
+        end
     end
 end
 
@@ -217,50 +254,70 @@ local _color_applied = false
 local function apply_color_mods()
     if not G or not G.C then return end
 
+    -- Darken the dynamic background colours
     if is_active('darken_background_enabled') then
-        local bg = G.C.BACKGROUND
-        if bg then
-            local f = cfg.darken_background
-            if bg.L then bg.L = {bg.L[1] * f, bg.L[2] * f, bg.L[3] * f, bg.L[4] or 1} end
-            if bg.D then bg.D = {bg.D[1] * f, bg.D[2] * f, bg.D[3] * f, bg.D[4] or 1} end
-            if bg.C then bg.C = {bg.C[1] * f, bg.C[2] * f, bg.C[3] * f, bg.C[4] or 1} end
+        local f = cfg.darken_background
+        -- G.C.BACKGROUND is set during runtime by ease_background_colour
+        -- We set a lower base by patching G.C.DYN_UI which controls the
+        -- sidebar and panel backgrounds
+        if G.C.DYN_UI then
+            if G.C.DYN_UI.MAIN then G.C.DYN_UI.MAIN = darken(G.C.DYN_UI.MAIN, (1 - f) * 0.5) end
+            if G.C.DYN_UI.DARK then G.C.DYN_UI.DARK = darken(G.C.DYN_UI.DARK, (1 - f) * 0.6) end
+            if G.C.DYN_UI.BOSS_MAIN then G.C.DYN_UI.BOSS_MAIN = darken(G.C.DYN_UI.BOSS_MAIN, (1 - f) * 0.5) end
+            if G.C.DYN_UI.BOSS_DARK then G.C.DYN_UI.BOSS_DARK = darken(G.C.DYN_UI.BOSS_DARK, (1 - f) * 0.6) end
+            if G.C.DYN_UI.BOSS_PALE then G.C.DYN_UI.BOSS_PALE = darken(G.C.DYN_UI.BOSS_PALE, (1 - f) * 0.5) end
+        end
+        -- Darken the static background elements
+        if G.C.UI and G.C.UI.TRANSPARENT_DARK then
+            G.C.UI.TRANSPARENT_DARK = {0, 0, 0, math.min(0.8, (G.C.UI.TRANSPARENT_DARK[4] or 0.5) * (2 - f))}
+        end
+        -- Darken the background pattern colour transitions
+        if G.C.BLIND then
+            for k, v in pairs(G.C.BLIND) do
+                if type(v) == 'table' and v[1] and v[2] and v[3] then
+                    G.C.BLIND[k] = darken(v, (1 - f) * 0.3)
+                end
+            end
         end
     end
 
     if is_active('reduce_saturation_enabled') then
         local s = cfg.reduce_saturation
         if G.C.UI then
-            G.C.UI.BACKGROUND_DARK = desaturate(G.C.UI.BACKGROUND_DARK, s)
-            G.C.UI.BACKGROUND_LIGHT = desaturate(G.C.UI.BACKGROUND_LIGHT, s)
-            G.C.UI.BACKGROUND_INACTIVE = desaturate(G.C.UI.BACKGROUND_INACTIVE, s)
-            G.C.UI.OUTLINE_DARK = desaturate(G.C.UI.OUTLINE_DARK, s)
-            G.C.UI.OUTLINE_LIGHT = desaturate(G.C.UI.OUTLINE_LIGHT, s)
+            if G.C.UI.BACKGROUND_DARK then G.C.UI.BACKGROUND_DARK = desaturate(G.C.UI.BACKGROUND_DARK, s) end
+            if G.C.UI.BACKGROUND_LIGHT then G.C.UI.BACKGROUND_LIGHT = desaturate(G.C.UI.BACKGROUND_LIGHT, s) end
+            if G.C.UI.BACKGROUND_INACTIVE then G.C.UI.BACKGROUND_INACTIVE = desaturate(G.C.UI.BACKGROUND_INACTIVE, s) end
+            if G.C.UI.OUTLINE_DARK then G.C.UI.OUTLINE_DARK = desaturate(G.C.UI.OUTLINE_DARK, s) end
+            if G.C.UI.OUTLINE_LIGHT then G.C.UI.OUTLINE_LIGHT = desaturate(G.C.UI.OUTLINE_LIGHT, s) end
         end
         if G.C.SECONDARY_SET then
-            G.C.SECONDARY_SET.Default = desaturate(G.C.SECONDARY_SET.Default, s)
-            G.C.SECONDARY_SET.Enhanced = desaturate(G.C.SECONDARY_SET.Enhanced, s)
-            G.C.SECONDARY_SET.Joker = desaturate(G.C.SECONDARY_SET.Joker, s)
+            if G.C.SECONDARY_SET.Default then G.C.SECONDARY_SET.Default = desaturate(G.C.SECONDARY_SET.Default, s) end
+            if G.C.SECONDARY_SET.Enhanced then G.C.SECONDARY_SET.Enhanced = desaturate(G.C.SECONDARY_SET.Enhanced, s) end
+            if G.C.SECONDARY_SET.Joker then G.C.SECONDARY_SET.Joker = desaturate(G.C.SECONDARY_SET.Joker, s) end
         end
         if G.C.GREY then G.C.GREY = desaturate(G.C.GREY, s) end
         if G.C.L_BLACK then G.C.L_BLACK = desaturate(G.C.L_BLACK, s) end
         if G.C.JOKER_GREY then G.C.JOKER_GREY = desaturate(G.C.JOKER_GREY, s) end
+        -- Also mute some secondary text colours
+        if G.C.FILTER then G.C.FILTER = desaturate(G.C.FILTER, math.min(s + 0.15, 1)) end
     end
 
     if is_active('boost_contrast') then
-        local cb = cfg.contrast_boost
+        -- Brighten text
         if G.C.UI and G.C.UI.TEXT_LIGHT then
             G.C.UI.TEXT_LIGHT = copy_colour(G.C.UI.TEXT_LIGHT)
-            G.C.UI.TEXT_LIGHT[4] = math.min(1, (G.C.UI.TEXT_LIGHT[4] or 1) * 1.1)
+            G.C.UI.TEXT_LIGHT[4] = math.min(1, (G.C.UI.TEXT_LIGHT[4] or 1) * 1.15)
         end
+        -- Darken panel backgrounds further
         if G.C.DYN_UI then
-            G.C.DYN_UI.MAIN = darken(G.C.DYN_UI.MAIN, 0.08)
-            G.C.DYN_UI.DARK = darken(G.C.DYN_UI.DARK, 0.12)
-            G.C.DYN_UI.BOSS_MAIN = darken(G.C.DYN_UI.BOSS_MAIN, 0.08)
-            G.C.DYN_UI.BOSS_DARK = darken(G.C.DYN_UI.BOSS_DARK, 0.12)
-            G.C.DYN_UI.BOSS_PALE = darken(G.C.DYN_UI.BOSS_PALE, 0.08)
+            if G.C.DYN_UI.MAIN then G.C.DYN_UI.MAIN = darken(G.C.DYN_UI.MAIN, 0.06) end
+            if G.C.DYN_UI.DARK then G.C.DYN_UI.DARK = darken(G.C.DYN_UI.DARK, 0.08) end
+            if G.C.DYN_UI.BOSS_MAIN then G.C.DYN_UI.BOSS_MAIN = darken(G.C.DYN_UI.BOSS_MAIN, 0.06) end
+            if G.C.DYN_UI.BOSS_DARK then G.C.DYN_UI.BOSS_DARK = darken(G.C.DYN_UI.BOSS_DARK, 0.08) end
         end
+        -- Increase background pattern contrast
         if G.C.BACKGROUND and G.C.BACKGROUND.contrast then
-            G.C.BACKGROUND.contrast = G.C.BACKGROUND.contrast * cb
+            G.C.BACKGROUND.contrast = G.C.BACKGROUND.contrast * 1.15
         end
     end
 
