@@ -21,45 +21,17 @@
 local MOD = SMODS.current_mod
 local cfg = MOD.config
 
--- Helper: boost a node's direct text scales recursively
-local function boost_text_node(node, mult)
-    if not node then return end
-    if node.config and node.config.scale then
-        node.config.scale = node.config.scale * mult
-    end
-    if node.nodes then
-        for _, n in ipairs(node.nodes) do boost_text_node(n, mult) end
-    end
-    if node.config and node.config.object and node.config.object.config then
-        local oc = node.config.object.config
-        if oc.scale then oc.scale = oc.scale * mult end
-    end
+-- Helper: cross-fade between two colours
+local function mix_colours(c1, c2, t)
+    if not c1 or not c2 then return c1 or c2 or {1,1,1,1} end
+    t = t or 0.5
+    return {
+        c1[1] * (1 - t) + c2[1] * t,
+        c1[2] * (1 - t) + c2[2] * t,
+        c1[3] * (1 - t) + c2[3] * t,
+        (c1[4] or 1) * (1 - t) + (c2[4] or 1) * t
+    }
 end
-
--- Helper: boost padding/outline on nodes recursively
-local function boost_layout_node(node, p_boost, o_mult)
-    if not node then return end
-    if node.config then
-        if node.config.padding then node.config.padding = node.config.padding * p_boost end
-        if node.config.minh then node.config.minh = node.config.minh * 1.15 end
-        if node.config.minw then node.config.minw = node.config.minw * 1.1 end
-        if o_mult and node.config.outline then
-            node.config.outline = node.config.outline * o_mult
-        end
-    end
-    if node.nodes then
-        for _, n in ipairs(node.nodes) do boost_layout_node(n, p_boost, o_mult) end
-    end
-    if node.config and node.config.object and node.config.object.config then
-        local oc = node.config.object.config
-        if oc.scale then oc.scale = oc.scale * get_text_boost(oc.scale) end
-        if oc.maxw then oc.maxw = oc.maxw * 1.1 end
-    end
-end
-
----------------------------------------------------------
--- UTILITY
----------------------------------------------------------
 
 local function is_active(feature)
     return cfg[feature] == true
@@ -104,17 +76,47 @@ local function get_text_boost(original_scale)
     return 1
 end
 
--- Cross-fade between two colours
-local function mix_colours(c1, c2, t)
-    if not c1 or not c2 then return c1 or c2 or {1,1,1,1} end
-    t = t or 0.5
-    return {
-        c1[1] * (1 - t) + c2[1] * t,
-        c1[2] * (1 - t) + c2[2] * t,
-        c1[3] * (1 - t) + c2[3] * t,
-        (c1[4] or 1) * (1 - t) + (c2[4] or 1) * t
-    }
+-- Helper: boost a node's direct text scales recursively
+local function boost_text_node(node, mult)
+    if not node then return end
+    if node.config and node.config.scale then
+        node.config.scale = node.config.scale * mult
+    end
+    if node.nodes then
+        for _, n in ipairs(node.nodes) do boost_text_node(n, mult) end
+    end
+    if node.config and node.config.object and node.config.object.config then
+        local oc = node.config.object.config
+        if oc.scale then oc.scale = oc.scale * mult end
+    end
 end
+
+-- Helper: boost padding/outline on nodes recursively
+local function boost_layout_node(node, p_boost, o_mult)
+    if not node then return end
+    if node.config then
+        if node.config.padding then node.config.padding = node.config.padding * p_boost end
+        if node.config.minh then node.config.minh = node.config.minh * 1.15 end
+        if node.config.minw then node.config.minw = node.config.minw * 1.1 end
+        if o_mult and node.config.outline then
+            node.config.outline = node.config.outline * o_mult
+        end
+    end
+    if node.nodes then
+        for _, n in ipairs(node.nodes) do boost_layout_node(n, p_boost, o_mult) end
+    end
+    if node.config and node.config.object and node.config.object.config then
+        local oc = node.config.object.config
+        if oc.scale then oc.scale = oc.scale * get_text_boost(oc.scale) end
+        if oc.maxw then oc.maxw = oc.maxw * 1.1 end
+    end
+end
+
+---------------------------------------------------------
+-- UTILITY
+---------------------------------------------------------
+
+-- (moved above boost_text_node for proper Lua local scoping)
 
 ---------------------------------------------------------
 -- ORIGINALS
