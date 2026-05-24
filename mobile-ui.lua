@@ -182,10 +182,21 @@ end
 if is_active('improve_blind_select') and _orig_create_UIBox_blind_choice then
     create_UIBox_blind_choice = function(type, run_info)
         local result = _orig_create_UIBox_blind_choice(type, run_info)
-        -- Boost all text in blind choices
+        if not result then return result end
+        -- Only boost text and reduce outlines — no layout/padding boosting
         boost_text_node(result, 1.15)
-        -- Boost layout (padding, spacing, min sizes)
-        boost_layout_node(result, cfg.blind_padding_boost, cfg.reduce_outline)
+        if is_active('reduce_outlines') then
+            local function reduce_outline_node(node)
+                if not node then return end
+                if node.config and node.config.outline then
+                    node.config.outline = node.config.outline * cfg.reduce_outline
+                end
+                if node.nodes then
+                    for _, n in ipairs(node.nodes) do reduce_outline_node(n) end
+                end
+            end
+            reduce_outline_node(result)
+        end
         return result
     end
 end
@@ -195,11 +206,22 @@ end
 if is_active('improve_blind_select') and _orig_create_UIBox_blind_select then
     create_UIBox_blind_select = function()
         local result = _orig_create_UIBox_blind_select()
-        if result and result.config then
-            if result.config.padding then result.config.padding = result.config.padding * cfg.blind_padding_boost end
+        if not result then return result end
+        -- Only boost text — no layout/padding boosting (causes card overflow on mobile)
+        boost_text_node(result, 1.15)
+        -- Reduce outlines only
+        if result and is_active('reduce_outlines') then
+            local function reduce_outline_node(node)
+                if not node then return end
+                if node.config and node.config.outline then
+                    node.config.outline = node.config.outline * cfg.reduce_outline
+                end
+                if node.nodes then
+                    for _, n in ipairs(node.nodes) do reduce_outline_node(n) end
+                end
+            end
+            reduce_outline_node(result)
         end
-        -- Boost spacing between blind cards
-        boost_layout_node(result, cfg.blind_padding_boost, cfg.reduce_outline)
         return result
     end
 end
